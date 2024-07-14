@@ -122,10 +122,10 @@ customer_query = "How do I reset my password?"
 handle_customer_query(customer_query)
 
 
-
-
-
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 '''
 Case Study 2: Image Generation for E-commerce
 Project Overview: Create a generative AI model that produces high-quality product images for e-commerce platforms.
@@ -142,137 +142,289 @@ Solution: Implement a virtual try-on feature using generative AI that allows cus
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-# 1. Data Preprocessing and Preparation (Python):
-
+# Step 1: Import Required Libraries
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, Dataset
+import torchvision.transforms as transforms
+from torchvision.utils import save_image
+from PIL import Image
 import os
-import cv2
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
-def preprocess_data(data_dir):
-  # Load images
-  image_paths = [os.path.join(data_dir, filename) for filename in os.listdir(data_dir) if filename.endswith((".jpg", ".png", ".jpeg"))]
-  images = []
-  for path in image_paths:
-    image = cv2.imread(path)
-    if image is not None:
-      images.append(image)
-
-  # Resize and normalize images (replace with your desired dimensions)
-  image_size = (256, 256)
-  images = [cv2.resize(img, image_size) / 255.0 for img in images]
-
-  # Data augmentation (optional, may improve model performance)
-  datagen = ImageDataGenerator(rotation_range=20, width_shift_range=0.2, height_shift_range=0.2, shear_range=0.2, zoom_range=0.2, horizontal_flip=True)
-  images = datagen.flow(images, batch_size=len(images))
-
-  return images
-
-# Example usage
-data_dir = "path/to/your/product_images"
-preprocessed_images = preprocess_data(data_dir)
-
-#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-# Image Generation using GANs:
-
-import tensorflow as tf
-from tensorflow.keras.layers import Dense, Reshape, Conv2D, Flatten
-
-# Define the generator model
-def build_generator():
-    model = tf.keras.Sequential()
-    model.add(Dense(256, input_dim=100))
-    model.add(Reshape((7, 7, 256)))
-    model.add(Conv2D(128, kernel_size=5, padding='same', activation='relu'))
-    model.add(Conv2D(1, kernel_size=5, padding='same', activation='sigmoid'))
-    return model
-
-# Instantiate the generator
-generator = build_generator()
-
-# Generate a sample image
-random_noise = tf.random.normal((1, 100))
-generated_image = generator(random_noise)
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-# . Product Image Augmentation (Python example using TensorFlow):
+#Step 2: Define the Dataset Class
 
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Conv2D, UpSampling2D, BatchNormalization, LeakyReLU, Dense, Flatten, Reshape
+class ProductImageDataset(Dataset):
+    def __init__(self, image_dir, transform=None):
+        self.image_dir = image_dir
+        self.transform = transform
+        self.image_list = os.listdir(image_dir)
 
-# Define the generator and discriminator networks (replace with your chosen architecture)
-def define_generator(latent_size):
-  # ...
+    def __len__(self):
+        return len(self.image_list)
 
-def define_discriminator(image_shape):
-  # ...
+    def __getitem__(self, idx):
+        img_name = os.path.join(self.image_dir, self.image_list[idx])
+        image = Image.open(img_name).convert("RGB")
+        if self.transform:
+            image = self.transform(image)
+        return image
 
-# Load preprocessed training data (from step 1)
-train_images = ...
 
-# Create the model (generator and discriminator combined for training)
-latent_size = 100
-discriminator = define_discriminator(train_images.shape[1:])
-generator = define_generator(latent_size)
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-discriminator.compile(loss='binary_crossentropy', optimizer='adam')
+# Step 3: Define the Generator and Discriminator Networks
 
-# Define the combined model for training
-discriminator.trainable = False
-model = Model(generator.inputs, discriminator(generator.outputs))
-model.compile(loss='binary_crossentropy', optimizer='adam')
 
-# Train the model (replace with your training parameters)
+class Generator(nn.Module):
+    def __init__(self, z_dim):
+        super(Generator, self).__init__()
+        self.network = nn.Sequential(
+            nn.Linear(z_dim, 256),
+            nn.ReLU(True),
+            nn.Linear(256, 512),
+            nn.ReLU(True),
+            nn.Linear(512, 1024),
+            nn.ReLU(True),
+            nn.Linear(1024, 3*64*64),
+            nn.Tanh()
+        )
+
+    def forward(self, x):
+        x = self.network(x)
+        return x.view(x.size(0), 3, 64, 64)
+
+class Discriminator(nn.Module):
+    def __init__(self):
+        super(Discriminator, self).__init__()
+        self.network = nn.Sequential(
+            nn.Linear(3*64*64, 1024),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(1024, 512),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(512, 256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(256, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        x = x.view(x.size(0), -1)
+        return self.network(x)
+
+
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Step 4: Training the GAN
+
+# Hyperparameters
+batch_size = 64
+lr = 0.0002
+z_dim = 100
 epochs = 100
-batch_size = 32
+image_dir = 'path/to/images'
+
+# Data loading
+transform = transforms.Compose([
+    transforms.Resize(64),
+    transforms.CenterCrop(64),
+    transforms.ToTensor(),
+    transforms.Normalize([0.5]*3, [0.5]*3)
+])
+
+dataset = ProductImageDataset(image_dir, transform)
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+# Model setup
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+generator = Generator(z_dim).to(device)
+discriminator = Discriminator().to(device)
+
+# Loss and optimizers
+criterion = nn.BCELoss()
+optimizer_g = optim.Adam(generator.parameters(), lr=lr, betas=(0.5, 0.999))
+optimizer_d = optim.Adam(discriminator.parameters(), lr=lr, betas=(0.5, 0.999))
+
+# Training loop
 for epoch in range(epochs):
-  for _ in range(int(train_images.shape[0] / batch_size)):
-    # Train discriminator
-    # ...
-    # Train generator
-    # ...
+    for i, images in enumerate(dataloader):
+        images = images.to(device)
+        batch_size = images.size(0)
 
-# Save the trained model
-generator.save("image_augmentation_model.h5")
+        # Labels
+        real_labels = torch.ones(batch_size, 1).to(device)
+        fake_labels = torch.zeros(batch_size, 1).to(device)
 
-# Example usage (generate an augmented image from a latent vector)
-latent_vector = np.random.normal(size=(1, latent_size))
-generated_image = generator.predict(latent_vector)[0]
-cv2.imshow("Generated Image", generated_image * 255.0)
-cv2.waitKey(0)
+        # Train Discriminator
+        outputs = discriminator(images)
+        d_loss_real = criterion(outputs, real_labels)
+        real_score = outputs
 
+        z = torch.randn(batch_size, z_dim).to(device)
+        fake_images = generator(z)
+        outputs = discriminator(fake_images.detach())
+        d_loss_fake = criterion(outputs, fake_labels)
+        fake_score = outputs
 
-#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+        d_loss = d_loss_real + d_loss_fake
+        optimizer_d.zero_grad()
+        d_loss.backward()
+        optimizer_d.step()
 
-# Virtual Try-On using GANs:
+        # Train Generator
+        outputs = discriminator(fake_images)
+        g_loss = criterion(outputs, real_labels)
 
-# Assume you have a pre-trained GAN for clothing items
-def try_on_clothing(user_image, clothing_item):
-    # Process user image and clothing item
-    # Use the GAN to generate a composite image
-    composite_image = user_image + clothing_item
-    return composite_image
+        optimizer_g.zero_grad()
+        g_loss.backward()
+        optimizer_g.step()
 
-# Example usage
-user_image = load_user_image('user.jpg')
-clothing_item = load_clothing_item('shirt.jpg')
-composite_result = try_on_clothing(user_image, clothing_item)
+    print(f'Epoch [{epoch+1}/{epochs}], d_loss: {d_loss.item():.4f}, g_loss: {g_loss.item():.4f}, '
+          f'D(x): {real_score.mean().item():.4f}, D(G(z)): {fake_score.mean().item():.4f}')
 
-
-
-
-
-#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-
-
-#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
+    # Save sampled images
+    if (epoch+1) % 10 == 0:
+        save_image(fake_images.data[:25], f'samples/sample_{epoch+1}.png', nrow=5, normalize=True)
 
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+# Virtual Try-On Experiences with GANs
+# Step 1: Import Required Libraries
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, Dataset
+import torchvision.transforms as transforms
+from torchvision.utils import save_image
+from PIL import Image
+import os
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Step 2: Define the Dataset Class for Try-On
+class VirtualTryOnDataset(Dataset):
+    def __init__(self, image_dir, transform=None):
+        self.image_dir = image_dir
+        self.transform = transform
+        self.image_list = os.listdir(image_dir)
+
+    def __len__(self):
+        return len(self.image_list)
+
+    def __getitem__(self, idx):
+        img_name = os.path.join(self.image_dir, self.image_list[idx])
+        image = Image.open(img_name).convert("RGB")
+        if self.transform:
+            image = self.transform(image)
+        return image
+
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Step 3: Define the Generator and Discriminator Networks
+
+class TryOnGenerator(nn.Module):
+    def __init__(self, z_dim):
+        super(TryOnGenerator, self).__init__()
+        self.network = nn.Sequential(
+            nn.Linear(z_dim, 256),
+            nn.ReLU(True),
+            nn.Linear(256, 512),
+            nn.ReLU(True),
+            nn.Linear(512, 1024),
+            nn.ReLU(True),
+            nn.Linear(1024, 3*128*128),
+            nn.Tanh()
+        )
+
+    def forward(self, x):
+        x = self.network(x)
+        return x.view(x.size(0), 3, 128, 128)
+
+class TryOnDiscriminator(nn.Module):
+    def __init__(self):
+        super(TryOnDiscriminator, self).__init__()
+        self.network = nn.Sequential(
+            nn.Linear(3*128*128, 1024),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(1024, 512),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(512, 256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(256, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        x = x.view(x.size(0), -1)
+        return self.network(x)
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#Step 4: Training the GAN for Virtual Try-On
+
+# Hyperparameters
+batch_size = 64
+lr = 0.0002
+z_dim = 100
+epochs = 100
+image_dir = 'path/to/tryon/images'
+
+# Data loading
+transform = transforms.Compose([
+    transforms.Resize(128),
+    transforms.CenterCrop(128),
+    transforms.ToTensor(),
+    transforms.Normalize([0.5]*3, [0.5]*3)
+])
+
+dataset = VirtualTryOnDataset(image_dir, transform)
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+# Model setup
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+generator = TryOnGenerator(z_dim).to(device)
+discriminator = TryOnDiscriminator().to(device)
+
+# Loss and optimizers
+criterion = nn.BCELoss()
+optimizer_g = optim.Adam(generator.parameters(), lr=lr, betas=(0.5, 0.999))
+optimizer_d = optim.Adam(discriminator.parameters(), lr=lr, betas=(0.5, 0.999))
+
+# Training loop
+for epoch in range(epochs):
+    for i, images in enumerate(dataloader):
+        images = images.to(device)
+        batch_size = images.size(0)
+
+        # Labels
+        real_labels = torch.ones(batch_size, 1).to(device)
+        fake_labels = torch.zeros(batch_size, 1).to(device)
+
+        # Train Discriminator
+        outputs = discriminator(images)
+        d_loss_real = criterion(outputs, real_labels)
+        real_score = outputs
+
+        z = torch.randn(batch_size, z_dim).to(device)
+        fake_images = generator(z)
+        outputs = discriminator(fake_images.detach())
+        d_loss_fake = criterion(outputs, fake_labels)
+        fake_score = outputs
+
+        d_loss = d_loss_real + d_loss_fake
+        optimizer_d.zero_grad()
+        d_loss.backward()
+        optimizer_d.step()
+
+        # Train Generator
+        outputs = discriminator(fake_images)
+        g_loss = criterion(outputs, real_labels)
+
+        optimizer_g.zero_grad()
+        g_loss.backward()
+        optimizer_g.step()
+
+    print(f'Epoch [{epoch+1}/{epochs}], d_loss: {d_loss.item():.4f}, g_loss: {g_loss.item():.4f}, '
+          f'D(x): {real_score.mean().item():.4f}, D(G(z)): {fake
 
 
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
